@@ -1,0 +1,76 @@
+{
+  "name": "Cardo - Credit Card Companion",
+  "short_name": "Cardo",
+  "description": "India's Smart Credit Card Companion - Optimize your spending and maximize rewards",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06060F",
+  "theme_color": "#C9A84C",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-IN",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png", 
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "permissions": [
+    "sms"
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Expense",
+      "short_name": "Add Expense", 
+      "description": "Quickly add a new expense",
+      "url": "/add-expense",
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "SMS Sync",
+      "short_name": "SMS Sync",
+      "description": "Import transactions from SMS",
+      "url": "/sms-sync", 
+      "icons": [
+        {
+          "src": "/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Card Advisor",
+      "short_name": "AI Advisor",
+      "description": "Get AI recommendations for spending",
+      "url": "/advisor",
+      "icons": [
+        {
+          "src": "/icon-192x192.png", 
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "protocol_handlers": [
+    {
+      "protocol": "web+cardo",
+      "url": "/transaction?data=%s"
+    }
+  ]
+}
