@@ -116,34 +116,6 @@ function parseSMSQuick(sms) {
     };
   }
   
-  // ICICI format
-  match = sms.match(/Rs[\s\.]?([\d,]+(?:\.\d{2})?).*?(?:debited|spent).*?ICICI.*?(?:card|a\/c).*?(\d{4})/i);
-  if (match) {
-    const merchantMatch = sms.match(/(?:at|via|on)\s([A-Za-z0-9\s\-\.]+)(?:\s|$|\.|,)/i);
-    return {
-      amount: parseFloat(match[1].replace(/,/g, '')),
-      merchant: merchantMatch ? merchantMatch[1].trim() : "Unknown",
-      bank: "ICICI Bank",
-      type: "debit",
-      date: today,
-      lastFour: match[2]
-    };
-  }
-  
-  // Axis format
-  match = sms.match(/Rs[\s\.]?([\d,]+(?:\.\d{2})?).*?(?:debited|spent).*?Axis.*?(?:card|a\/c).*?(\d{4})/i);
-  if (match) {
-    const merchantMatch = sms.match(/(?:at|via|on)\s([A-Za-z0-9\s\-\.]+)(?:\s|$|\.|,)/i);
-    return {
-      amount: parseFloat(match[1].replace(/,/g, '')),
-      merchant: merchantMatch ? merchantMatch[1].trim() : "Unknown",
-      bank: "Axis Bank",
-      type: "debit",
-      date: today,
-      lastFour: match[2]
-    };
-  }
-  
   return null;
 }
 
@@ -209,7 +181,7 @@ export default function CardoApp() {
 //  AUTH SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 function AuthScreen({ onLogin }) {
-  const [step, setStep] = useState('login'); // 'login' | 'phone' | 'otp'
+  const [step, setStep] = useState('login');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -217,7 +189,6 @@ function AuthScreen({ onLogin }) {
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    // Mock Google OAuth
     setTimeout(() => {
       setLoading(false);
       onLogin();
@@ -227,7 +198,6 @@ function AuthScreen({ onLogin }) {
   const sendOTP = async () => {
     if (!phone || phone.length !== 10) return;
     setLoading(true);
-    // Mock OTP send
     setTimeout(() => {
       setLoading(false);
       setStep('otp');
@@ -237,7 +207,6 @@ function AuthScreen({ onLogin }) {
   const verifyOTP = async () => {
     if (otp.join('').length !== 6) return;
     setLoading(true);
-    // Mock OTP verify
     setTimeout(() => {
       setLoading(false);
       onLogin();
@@ -260,7 +229,6 @@ function AuthScreen({ onLogin }) {
       
       <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(201,168,76,.2)",borderRadius:22,padding:40,width:380,textAlign:"center"}}>
         
-        {/* Logo */}
         <div style={{fontSize:42,fontWeight:800,marginBottom:8}}>
           <span style={{color:"#C9A84C"}}>C</span>ardo
         </div>
@@ -367,6 +335,65 @@ function MainApp() {
 
   const TABS = [{id:"home",icon:"🏠",label:"Home"},{id:"wallet",icon:"💳",label:"Wallet"},{id:"sms",icon:"📱",label:"Sync"},{id:"explore",icon:"🔍",label:"Explore"},{id:"earn",icon:"💰",label:"Earn"}];
 
+  async function handleAIQuery() {
+    if (!aiQuery.trim()) return;
+    setAiResp(null);
+    
+    try {
+      const myCardsWithRates = myCards.map(id => {
+        const c = CARD_DB[id];
+        return `${c.bank} ${c.name} (${Object.entries(c.benefits).map(([cat, rate]) => `${cat}:${rate}%`).join(', ')})`;
+      }).join('; ');
+
+      const response = await fetch('/api/ask-cardo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 800,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          messages: [{
+            role: 'user',
+            content: `You are Cardo, an expert Indian credit card AI advisor. The user owns these cards: ${myCardsWithRates}. 
+
+For this purchase query: "${aiQuery}"
+
+1. Search for any live bank offers related to this purchase
+2. Recommend the best card from their wallet
+
+Respond ONLY in this JSON format (no markdown):
+{"bestCard": "card name", "bank": "bank name", "rate": "X%", "saving": "₹X", "reason": "why this card", "liveOffer": "any current offer found or null", "proTip": "optimization tip or null"}`
+          }]
+        })
+      });
+      
+      const data = await response.json();
+      const content = data.content?.map(c => c.text || "").join("") || "";
+      const cleanContent = content.replace(/```json|```/g, "").trim();
+      setAiResp(JSON.parse(cleanContent));
+    } catch (err) {
+      console.error("AI query failed:", err);
+      
+      // Fallback to local recommendation
+      const amount = parseFloat(aiQuery.match(/[₹$]?([\d,]+)/)?.[1]?.replace(/,/g, '') || '1000');
+      const category = detectCategory(aiQuery);
+      const rankings = getCardRankings(myCards, category, amount);
+      const best = rankings[0];
+      
+      if (best) {
+        setAiResp({
+          bestCard: best.card.name,
+          bank: best.card.bank,
+          rate: `${best.rate}%`,
+          saving: fmt(Math.round(best.value)),
+          reason: `${best.rate}% on ${category} category`,
+          liveOffer: null,
+          proTip: null
+        });
+      }
+    }
+  }
+
   return (
     <div style={{fontFamily:"'Sora',sans-serif",background:"#06060F",color:"#E8E8F4",minHeight:"100vh",maxWidth:430,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');*{box-sizing:border-box;margin:0;padding:0;}::-webkit-scrollbar{width:3px;height:3px;}::-webkit-scrollbar-thumb{background:#2A2A3E;border-radius:4px;}@keyframes slideUp{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}@keyframes chipGlow{0%,100%{opacity:.7}50%{opacity:1}}.chov:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.45);transition:all .2s;}.bhov:hover{filter:brightness(1.12);transition:filter .15s;}.card3d{transition:transform .3s ease,box-shadow .3s ease;cursor:pointer;}.card3d:hover{transform:perspective(500px) rotateY(-8deg) rotateX(4deg) translateY(-5px) scale(1.03);box-shadow:0 28px 52px rgba(0,0,0,.65);}.card3d-full{transition:transform .25s ease,box-shadow .25s ease;cursor:pointer;}.card3d-full:hover{transform:perspective(700px) rotateY(-4deg) rotateX(2deg) scale(1.015);box-shadow:0 22px 44px rgba(0,0,0,.55);}.shimmer{position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.08) 50%,transparent 65%);background-size:200% 100%;animation:shimmer 2.8s linear infinite;border-radius:inherit;pointer-events:none;}input,select,textarea{font-family:inherit!important;}input:focus,select:focus{outline:none!important;border-color:#C9A84C!important;}.mono{font-family:'Space Mono',monospace!important;}`}</style>
@@ -431,83 +458,19 @@ function MainApp() {
       {addExpOpen && <AddExpenseModal expenses={expenses} setExpenses={setExpenses} myCards={myCards} onClose={() => setAddExpOpen(false)} />}
     </div>
   );
-
-  async function handleAIQuery() {
-    if (!aiQuery.trim()) return;
-    setAiResp(null);
-    
-    try {
-      const myCardsWithRates = myCards.map(id => {
-        const c = CARD_DB[id];
-        return `${c.bank} ${c.name} (${Object.entries(c.benefits).map(([cat, rate]) => `${cat}:${rate}%`).join(', ')})`;
-      }).join('; ');
-
-      const response = await fetch('/api/ask-cardo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 800,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages: [{
-            role: 'user',
-            content: `You are Cardo, an expert Indian credit card AI advisor. The user owns these cards: ${myCardsWithRates}. 
-
-For this purchase query: "${aiQuery}"
-
-1. Search for any live bank offers related to this purchase
-2. Recommend the best card from their wallet
-
-Respond ONLY in this JSON format (no markdown):
-{"bestCard": "card name", "bank": "bank name", "rate": "X%", "saving": "₹X", "reason": "why this card", "liveOffer": "any current offer found or null", "proTip": "optimization tip or null"}`
-          }]
-        })
-      });
-      
-      const data = await response.json();
-      const content = data.content?.map(c => c.text || "").join("") || "";
-      const cleanContent = content.replace(/```json|```/g, "").trim();
-      setAiResp(JSON.parse(cleanContent));
-    } catch (err) {
-      console.error("AI query failed:", err);
-      
-      // Fallback to local recommendation
-      const amount = parseFloat(aiQuery.match(/[₹$]?([\d,]+)/)?.[1]?.replace(/,/g, '') || '1000');
-      const category = detectCategory(aiQuery);
-      const rankings = getCardRankings(myCards, category, amount);
-      const best = rankings[0];
-      
-      if (best) {
-        setAiResp({
-          bestCard: best.card.name,
-          bank: best.card.bank,
-          rate: `${best.rate}%`,
-          saving: fmt(Math.round(best.value)),
-          reason: `${best.rate}% on ${category} category`,
-          liveOffer: null,
-          proTip: null
-        });
-      }
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CREDIT CARD VISUAL  — reusable physical card component
-//  size: "mini" (home strip ~160px wide) | "full" (wallet ~100% width)
+//  CREDIT CARD VISUAL COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
   const isFull = size === "full";
-  const w      = isFull ? "100%" : 164;
-  // Standard card aspect ratio 1.586:1
-  const aspect = "/ 1.586";
 
   // Chip SVG — golden EMV chip
   const Chip = () => (
     <svg width={isFull?34:26} height={isFull?26:20} viewBox="0 0 34 26" fill="none" style={{flexShrink:0,animation:"chipGlow 2.5s ease-in-out infinite"}}>
       <rect width="34" height="26" rx="4" fill={card.accent} opacity=".9"/>
       <rect x="1" y="1" width="32" height="24" rx="3" fill="none" stroke="rgba(0,0,0,.25)" strokeWidth=".5"/>
-      {/* chip lines */}
       <line x1="0" y1="9" x2="34" y2="9" stroke="rgba(0,0,0,.2)" strokeWidth=".8"/>
       <line x1="0" y1="17" x2="34" y2="17" stroke="rgba(0,0,0,.2)" strokeWidth=".8"/>
       <line x1="11" y1="0" x2="11" y2="26" stroke="rgba(0,0,0,.2)" strokeWidth=".8"/>
@@ -527,7 +490,6 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
     </svg>
   );
 
-  // Network badge text
   const networkColor = {
     "Visa":"rgba(255,255,255,.55)","Visa Infinite":"rgba(255,255,255,.7)",
     "Mastercard":"rgba(255,165,0,.65)","Amex":"rgba(100,200,255,.6)",
@@ -544,13 +506,9 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
         border:`1px solid ${card.accent}28`,
         boxShadow:`0 8px 24px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08)`,
       }}>
-        {/* Shimmer layer */}
         <div className="shimmer"/>
-        {/* Background circle decoration */}
         <div style={{position:"absolute",width:120,height:120,borderRadius:"50%",background:`${card.accent}08`,top:-30,right:-30,pointerEvents:"none"}}/>
-        <div style={{position:"absolute",width:80,height:80,borderRadius:"50%",background:`${card.accent}06`,bottom:-20,left:-10,pointerEvents:"none"}}/>
 
-        {/* Top row: bank + name + contactless */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
           <div style={{maxWidth:100}}>
             <div style={{fontSize:8,color:card.accent,letterSpacing:1.5,textTransform:"uppercase",fontWeight:700,lineHeight:1.2}}>{card.bank}</div>
@@ -559,15 +517,12 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
           <Contactless/>
         </div>
 
-        {/* Chip */}
         <div style={{marginBottom:8}}><Chip/></div>
 
-        {/* Card number dots */}
         <div className="mono" style={{fontSize:9,color:"rgba(255,255,255,.5)",letterSpacing:2,marginBottom:6}}>
           •••• •••• •••• ••••
         </div>
 
-        {/* Bottom: card name + network */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
           <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.9)",letterSpacing:.3,lineHeight:1.2}}>{card.name}</div>
           <div style={{fontSize:8,color:netCol,fontWeight:700,letterSpacing:.5,textTransform:"uppercase"}}>{card.network}</div>
@@ -587,13 +542,9 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
     }}>
       <div className="shimmer"/>
 
-      {/* Decorative circles */}
       <div style={{position:"absolute",width:240,height:240,borderRadius:"50%",background:`${card.accent}07`,top:-60,right:-60,pointerEvents:"none"}}/>
-      <div style={{position:"absolute",width:160,height:160,borderRadius:"50%",background:`radial-gradient(circle,${card.accent}0A,transparent)`,bottom:-40,left:-20,pointerEvents:"none"}}/>
-      {/* Card stripe accent */}
       <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,transparent,${card.accent}66,transparent)`,borderRadius:"18px 18px 0 0"}}/>
 
-      {/* Top row */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"auto"}}>
         <div>
           <div style={{fontSize:10,color:card.accent,letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:3}}>{card.bank}</div>
@@ -612,15 +563,12 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
         </div>
       </div>
 
-      {/* Chip + middle spacer */}
       <div style={{marginTop:16,marginBottom:14}}><Chip/></div>
 
-      {/* Card number */}
       <div className="mono" style={{fontSize:15,color:"rgba(255,255,255,.55)",letterSpacing:4,marginBottom:12}}>
         ••••   ••••   ••••   ••••
       </div>
 
-      {/* Bottom row */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
         <div>
           <div style={{fontSize:8,color:"rgba(255,255,255,.35)",letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>Card Holder</div>
@@ -639,5 +587,387 @@ function CreditCardVisual({ card, size = "mini", onClick, onRemove }) {
   );
 }
 
-// Component definitions continue with HomeTab, WalletTab, etc...
-// This is a truncated version for brevity. The full file would continue with all the remaining components.
+// ─────────────────────────────────────────────────────────────────────────────
+//  TAB COMPONENTS - PLACEHOLDER IMPLEMENTATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HomeTab({ totalSpent, totalEarned, totalMissed, myCards, expenses, allStats, onCardClick }) {
+  return (
+    <div style={{animation:"slideUp .3s ease"}}>
+      {/* Summary stats */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:20}}>
+        <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:12,padding:16,textAlign:"center"}}>
+          <div style={{fontSize:24,fontWeight:800,color:"#C9A84C"}}>{fmt(totalSpent)}</div>
+          <div style={{fontSize:10,color:"#666688",marginTop:4}}>Total Spent</div>
+        </div>
+        <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:12,padding:16,textAlign:"center"}}>
+          <div style={{fontSize:24,fontWeight:800,color:"#4ADE80"}}>{fmt(totalEarned.toFixed(0))}</div>
+          <div style={{fontSize:10,color:"#666688",marginTop:4}}>Earned</div>
+        </div>
+        <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:12,padding:16,textAlign:"center"}}>
+          <div style={{fontSize:24,fontWeight:800,color:"#F87171"}}>{fmt(totalMissed.toFixed(0))}</div>
+          <div style={{fontSize:10,color:"#666688",marginTop:4}}>Missed</div>
+        </div>
+      </div>
+
+      {/* My cards horizontal scroll */}
+      <div style={{fontSize:14,fontWeight:700,marginBottom:12}}>My Cards</div>
+      <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:10,marginBottom:20}}>
+        {myCards.map(cardId => {
+          const card = CARD_DB[cardId];
+          return card ? <CreditCardVisual key={cardId} card={card} size="mini" onClick={() => onCardClick(card)} /> : null;
+        })}
+      </div>
+
+      {/* Recent expenses */}
+      <div style={{fontSize:14,fontWeight:700,marginBottom:12}}>Recent Transactions</div>
+      {expenses.slice(0, 5).map((exp, i) => {
+        const stat = allStats[i];
+        return (
+          <div key={exp.id} style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:10,padding:12,marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600}}>{exp.merchant}</div>
+                <div style={{fontSize:11,color:"#666688"}}>{exp.date} • {exp.category}</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:16,fontWeight:700}}>{fmt(exp.amount)}</div>
+                <div style={{fontSize:10,color:stat?.color}}>{stat?.emoji} {stat?.decision}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WalletTab({ myCards, onCardClick }) {
+  return (
+    <div style={{animation:"slideUp .3s ease"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:16}}>My Wallet</div>
+      {myCards.map(cardId => {
+        const card = CARD_DB[cardId];
+        return card ? (
+          <CreditCardVisual 
+            key={cardId} 
+            card={card} 
+            size="full" 
+            onClick={() => onCardClick(card)}
+          />
+        ) : null;
+      })}
+    </div>
+  );
+}
+
+function SMSSyncTab({ expenses, setExpenses, myCards }) {
+  const [smsText, setSmsText] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleParse = async () => {
+    setLoading(true);
+    const parsed = await parseSMSWithAI(smsText);
+    setLoading(false);
+    
+    if (parsed && !parsed.error) {
+      const newExp = {
+        id: `exp${Date.now()}`,
+        merchant: parsed.merchant,
+        amount: parsed.amount,
+        category: detectCategory(parsed.merchant),
+        cardId: myCards[0], // Default to first card
+        date: parsed.date,
+        note: "Auto-imported from SMS"
+      };
+      setExpenses(prev => [newExp, ...prev]);
+      setSmsText("");
+    }
+  };
+
+  return (
+    <div style={{animation:"slideUp .3s ease"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:16}}>SMS Sync</div>
+      <div style={{marginBottom:12}}>
+        <textarea 
+          value={smsText}
+          onChange={e => setSmsText(e.target.value)}
+          placeholder="Paste your bank SMS here..."
+          style={{
+            width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+            borderRadius:12,padding:16,color:"#E8E8F4",fontSize:14,fontFamily:"inherit",
+            minHeight:120,resize:"none"
+          }}
+        />
+      </div>
+      <button 
+        onClick={handleParse} 
+        disabled={!smsText.trim() || loading}
+        style={{
+          width:"100%",background:"linear-gradient(135deg,#C9A84C,#E8C97A)",
+          border:"none",borderRadius:12,padding:16,color:"#06060F",
+          fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit",
+          opacity: smsText.trim() ? 1 : 0.5
+        }}
+      >
+        {loading ? "Parsing..." : "Parse SMS"}
+      </button>
+    </div>
+  );
+}
+
+function ExploreTab({ myCards, setMyCards, onCardClick }) {
+  const allCards = Object.values(CARD_DB);
+  
+  return (
+    <div style={{animation:"slideUp .3s ease"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:16}}>Explore Cards</div>
+      {allCards.map(card => (
+        <div key={card.id} onClick={() => onCardClick(card)} style={{
+          background:`linear-gradient(135deg,${card.gradient[0]},${card.gradient[1]})`,
+          border:`1px solid ${card.accent}22`,borderRadius:12,padding:16,marginBottom:12,
+          cursor:"pointer",display:"flex",alignItems:"center",gap:12
+        }} className="chov">
+          <span style={{fontSize:28}}>{card.emoji}</span>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{card.bank} {card.name}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{card.type} • {card.fee}</div>
+          </div>
+          <div style={{
+            background: myCards.includes(card.id) ? "#4ADE80" : "rgba(255,255,255,.1)",
+            color: myCards.includes(card.id) ? "#06060F" : "#fff",
+            padding:"6px 12px",borderRadius:8,fontSize:11,fontWeight:600
+          }}>
+            {myCards.includes(card.id) ? "Added" : "Add"}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EarnTab({ affLog }) {
+  const totalEarned = affLog.reduce((sum, log) => sum + log.commission, 0);
+  
+  return (
+    <div style={{animation:"slideUp .3s ease"}}>
+      <div style={{fontSize:18,fontWeight:700,marginBottom:16}}>Affiliate Earnings</div>
+      
+      <div style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:12,padding:20,textAlign:"center",marginBottom:20}}>
+        <div style={{fontSize:32,fontWeight:800,color:"#4ADE80"}}>{fmt(totalEarned)}</div>
+        <div style={{fontSize:12,color:"#666688"}}>Total Commission Earned</div>
+      </div>
+
+      <div style={{fontSize:14,fontWeight:700,marginBottom:12}}>Recent Activity</div>
+      {affLog.length === 0 ? (
+        <div style={{textAlign:"center",padding:40,color:"#666688"}}>
+          <div style={{fontSize:40,marginBottom:12}}>💳</div>
+          <div>No affiliate activity yet</div>
+        </div>
+      ) : (
+        affLog.map(log => {
+          const card = CARD_DB[log.cardId];
+          return card ? (
+            <div key={log.id} style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderRadius:10,padding:12,marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:24}}>{card.emoji}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:600}}>{card.name}</div>
+                <div style={{fontSize:11,color:"#666688"}}>{log.network} • {new Date(log.clickedAt).toLocaleDateString()}</div>
+              </div>
+              <div style={{fontSize:16,fontWeight:700,color:"#4ADE80"}}>{fmt(log.commission)}</div>
+            </div>
+          ) : null;
+        })
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  MODAL COMPONENTS - PLACEHOLDER IMPLEMENTATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MyCardDashboard({ card, onClose }) {
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"#0B0B18",border:"1px solid rgba(201,168,76,.2)",borderRadius:16,padding:24,width:"90%",maxWidth:400}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{fontSize:18,fontWeight:700}}>{card.name} Dashboard</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        <CreditCardVisual card={card} size="full" />
+        <div style={{textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:14,color:"#666688",marginBottom:8}}>Card Benefits</div>
+          <div style={{fontSize:12,color:"#AAAACC"}}>
+            Amazon: {card.benefits.amazon}% • Dining: {card.benefits.dining}% • Travel: {card.benefits.travel}%
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CardModal({ card, owned, onClose, onAdd, onAffiliate }) {
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"#0B0B18",border:"1px solid rgba(201,168,76,.2)",borderRadius:16,padding:24,width:"90%",maxWidth:400}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{fontSize:18,fontWeight:700}}>{card.name}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        <CreditCardVisual card={card} size="full" />
+        <div style={{marginTop:20}}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:8}}>Benefits</div>
+          <div style={{fontSize:12,color:"#AAAACC",marginBottom:16}}>
+            Amazon: {card.benefits.amazon}% • Dining: {card.benefits.dining}% • Travel: {card.benefits.travel}%
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button 
+              onClick={owned ? () => {} : onAdd}
+              style={{
+                flex:1,background:owned?"rgba(74,222,128,.2)":"linear-gradient(135deg,#C9A84C,#E8C97A)",
+                border:"none",borderRadius:10,padding:12,color:owned?"#4ADE80":"#06060F",
+                fontWeight:700,cursor:"pointer",fontFamily:"inherit"
+              }}
+            >
+              {owned ? "Added to Wallet" : "Add to Wallet"}
+            </button>
+            {AFF[card.id] && (
+              <button 
+                onClick={() => onAffiliate(AFF[card.id].url)}
+                style={{
+                  flex:1,background:"rgba(255,255,255,.1)",border:"1px solid rgba(255,255,255,.2)",
+                  borderRadius:10,padding:12,color:"#E8E8F4",fontWeight:600,cursor:"pointer",fontFamily:"inherit"
+                }}
+              >
+                Apply ({fmt(AFF[card.id].commission)})
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddCardModal({ myCards, setMyCards, onClose }) {
+  const availableCards = Object.values(CARD_DB).filter(card => !myCards.includes(card.id));
+  
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"#0B0B18",border:"1px solid rgba(201,168,76,.2)",borderRadius:16,padding:24,width:"90%",maxWidth:400,maxHeight:"80vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{fontSize:18,fontWeight:700}}>Add Card</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        {availableCards.map(card => (
+          <div 
+            key={card.id} 
+            onClick={() => {
+              setMyCards([...myCards, card.id]);
+              onClose();
+            }}
+            style={{
+              background:`linear-gradient(135deg,${card.gradient[0]},${card.gradient[1]})`,
+              border:`1px solid ${card.accent}22`,borderRadius:10,padding:12,marginBottom:8,
+              cursor:"pointer",display:"flex",alignItems:"center",gap:10
+            }}
+            className="chov"
+          >
+            <span style={{fontSize:20}}>{card.emoji}</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{card.bank} {card.name}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{card.type}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AddExpenseModal({ expenses, setExpenses, myCards, onClose }) {
+  const [merchant, setMerchant] = useState("");
+  const [amount, setAmount] = useState("");
+  const [cardId, setCardId] = useState(myCards[0] || "");
+  
+  const handleAdd = () => {
+    if (!merchant || !amount || !cardId) return;
+    
+    const newExp = {
+      id: `exp${Date.now()}`,
+      merchant,
+      amount: parseFloat(amount),
+      category: detectCategory(merchant),
+      cardId,
+      date: new Date().toISOString().split('T')[0],
+      note: ""
+    };
+    
+    setExpenses([newExp, ...expenses]);
+    onClose();
+  };
+  
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"#0B0B18",border:"1px solid rgba(201,168,76,.2)",borderRadius:16,padding:24,width:"90%",maxWidth:400}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{fontSize:18,fontWeight:700}}>Add Expense</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#666",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        
+        <div style={{marginBottom:16}}>
+          <input 
+            value={merchant}
+            onChange={e => setMerchant(e.target.value)}
+            placeholder="Merchant name"
+            style={{
+              width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+              borderRadius:8,padding:12,color:"#E8E8F4",fontSize:14,fontFamily:"inherit"
+            }}
+          />
+        </div>
+        
+        <div style={{marginBottom:16}}>
+          <input 
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            placeholder="Amount"
+            type="number"
+            style={{
+              width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+              borderRadius:8,padding:12,color:"#E8E8F4",fontSize:14,fontFamily:"inherit"
+            }}
+          />
+        </div>
+        
+        <div style={{marginBottom:20}}>
+          <select 
+            value={cardId}
+            onChange={e => setCardId(e.target.value)}
+            style={{
+              width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",
+              borderRadius:8,padding:12,color:"#E8E8F4",fontSize:14,fontFamily:"inherit"
+            }}
+          >
+            {myCards.map(id => {
+              const card = CARD_DB[id];
+              return card ? <option key={id} value={id}>{card.bank} {card.name}</option> : null;
+            })}
+          </select>
+        </div>
+        
+        <button 
+          onClick={handleAdd}
+          style={{
+            width:"100%",background:"linear-gradient(135deg,#C9A84C,#E8C97A)",
+            border:"none",borderRadius:10,padding:12,color:"#06060F",
+            fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"
+          }}
+        >
+          Add Expense
+        </button>
+      </div>
+    </div>
+  );
+}
