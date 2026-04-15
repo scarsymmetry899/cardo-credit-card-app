@@ -1,31 +1,24 @@
 {
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+  "version": 2,
+  "name": "cardo",
+  "builds": [
+    { "src": "src/**", "use": "@vercel/static-build", "config": { "distDir": "dist" } },
+    { "src": "api/**", "use": "@vercel/node" }
   ],
-  "headers": [{
-    "source": "/api/(.*)",
-    "headers": [
-      { "key": "Access-Control-Allow-Origin", "value": "*" },
-      { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
-      { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
-    ]
-  }],
-  "crons": [
-    {
-      "path": "/api/cron/scrape-offers",
-      "schedule": "0 6 * * 1",
-      "comment": "Weekly bank offer scraping - Mondays 6am"
-    },
-    {
-      "path": "/api/cron/send-summaries",
-      "schedule": "0 9 1 * *",
-      "comment": "Monthly spend summary emails - 1st of month 9am"
-    }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
-  "functions": {
-    "api/ask-cardo.js": {
-      "maxDuration": 30
+  "env": {
+    "ANTHROPIC_API_KEY": "@anthropic-api-key"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
     }
-  }
+  ]
 }
